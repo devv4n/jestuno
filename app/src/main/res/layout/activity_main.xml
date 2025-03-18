@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:keepScreenOn="true"
+    app:circularflow_defaultRadius="@dimen/material_emphasis_medium"
+    tools:context=".MainActivity">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:scaleType="fitStart"/>
+
+    <Button
+        android:id="@+id/button2"
+        android:layout_width="57dp"
+        android:layout_height="wrap_content"
+        android:background="#00FFFFFF"
+        android:backgroundTint="#00FFFFFF"
+        android:outlineProvider="none"
+        android:shadowColor="#00FFFFFF"
+        android:visibility="visible"
+        app:icon="@android:drawable/ic_popup_sync"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:strokeColor="#00FFFFFF" />
+
+    <LinearLayout
+        android:id="@+id/mylinear"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/r_border"
+        android:orientation="vertical"
+        android:paddingLeft="10dp"
+        android:paddingTop="10dp"
+        android:paddingRight="10dp"
+        android:paddingBottom="10dp"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/speakButton1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:backgroundTint="#006C6C6C"
+                android:scaleType="centerInside"
+                android:src="@drawable/volume__1_"
+                app:elevation="0dp"
+                app:borderWidth="0dp"
+                app:fabCustomSize="50dp"
+                app:maxImageSize="22dp"
+                app:pressedTranslationZ="0dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:tint="#6C6C6C" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/helpButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="#00FFFFFF"
+                app:icon="@android:drawable/ic_menu_info_details"
+                app:iconTint="#0C0C0C"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:rippleColor="#FFFFFF"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/startButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#006C6C6C"
+                android:importantForAccessibility="no"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_media_play"
+                app:borderWidth="0dp"
+                app:elevation="0dp"
+                app:fabCustomSize="50dp"
+                app:hoveredFocusedTranslationZ="0dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:maxImageSize="45dp"
+                app:pressedTranslationZ="0dp"
+                app:tint="#6C6C6C" />
+
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <TextView
+            android:id="@+id/detected_item_value_1"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:gravity="start"
+            android:scrollbars="vertical"
+            android:textAlignment="viewStart"
+            android:textColor="@android:color/black"
+            android:textSize="16sp"
+            android:padding="16dp"
+            android:background="@drawable/rounded"
+            android:layout_margin="8dp" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
+
