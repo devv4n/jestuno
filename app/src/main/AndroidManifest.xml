@@ -20,7 +20,9 @@
             </intent-filter>
         </activity>
         <activity android:name=".GalleryActivity" />
-        <activity android:name=".FullScreenImageActivity" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"/>
+        <activity
+            android:name=".FullScreenImageActivity"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
 
     </application>
 

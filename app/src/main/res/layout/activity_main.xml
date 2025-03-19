@@ -73,14 +73,14 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:background="#00FFFFFF"
-                app:icon="@android:drawable/ic_menu_info_details"
-                app:iconTint="#0C0C0C"
+                app:icon="@android:drawable/ic_menu_sort_alphabetically"
                 app:iconGravity="textStart"
                 app:iconPadding="0dp"
-                app:rippleColor="#FFFFFF"
+                app:iconTint="#0C0C0C"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                app:layout_constraintTop_toTopOf="parent"
+                app:rippleColor="#FFFFFF" />
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/startButton"

@@ -3,7 +3,6 @@ package ai.onnxruntime.example.imageclassifier
 import ai.onnxruntime.*
 import ai.onnxruntime.example.imageclassifier.databinding.ActivityMainBinding
 import android.Manifest
-import android.app.Activity
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.os.Bundle
@@ -25,17 +24,24 @@ import java.util.concurrent.Executors
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
-import android.view.LayoutInflater
+import android.os.Handler
+import android.os.Looper
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.BaseAdapter
-import android.widget.Button
+import android.widget.EditText
 import android.widget.GridView
 import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.switchmaterial.SwitchMaterial
+import java.io.IOException
 
 // Top-level extension function for rotating a Bitmap
 fun Bitmap.rotate(degrees: Float): Bitmap {
@@ -49,6 +55,9 @@ fun initializeLabels(context: Context) {
     labelData = context.resources.openRawResource(R.raw.imagenet_classes).bufferedReader().readLines()
 }
 
+private var devModeThreshold = 0.067f
+private var showAllLetters = false
+
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var binding: ActivityMainBinding
 
@@ -61,6 +70,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var imageCapture: ImageCapture? = null
     private var imageAnalysis: ImageAnalysis? = null
     private var cameraSelector: CameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
+
+    private var hintToast: Toast? = null
+    private var pressStartTime = 0L
+    private val devModeHandler = Handler(Looper.getMainLooper())
 
     private lateinit var tts: TextToSpeech
     private val textBuffer: StringBuilder = StringBuilder()
@@ -101,42 +115,69 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             switchCamera()
         }
 
-        binding.speakButton1?.setOnClickListener {
+        binding.speakButton1.setOnClickListener {
             isSpeaking=!isSpeaking
             if (isSpeaking) {
                 startTextToSpeech()
 
-                binding.speakButton1?.setImageResource(R.drawable.mute__1_)
+                binding.speakButton1.setImageResource(R.drawable.mute__1_)
+                Toast.makeText(this, "Озвучивание включено", Toast.LENGTH_SHORT).show()
             } else {
                 stopTextToSpeech()
 
-                binding.speakButton1?.setImageResource(R.drawable.volume__1_)
+                binding.speakButton1.setImageResource(R.drawable.volume__1_)
+                Toast.makeText(this, "Озвучивание выключено", Toast.LENGTH_SHORT).show()
             }
         }
 
-        binding.startButton?.setOnLongClickListener {
+        binding.startButton.setOnLongClickListener {
             binding.detectedItemValue1.text = ""
             Toast.makeText(this, "Очищено", Toast.LENGTH_SHORT).show()
             true
         }
 
-        binding.startButton?.setOnClickListener {
+        binding.startButton.setOnClickListener {
             if (isRecognitionActive) {
                 stopRecognition() // Остановка распознавания
-                binding.startButton?.setImageResource(android.R.drawable.ic_media_play)
+                binding.startButton.setImageResource(android.R.drawable.ic_media_play)
             } else {
                 startRecognition() // Запуск распознавания
-                binding.startButton?.setImageResource(android.R.drawable.ic_media_pause)
+                binding.startButton.setImageResource(android.R.drawable.ic_media_pause)
+
+                Toast.makeText(this, "Для очистки удерживайте", Toast.LENGTH_SHORT).show()
             }
         }
 
+        initializeLabels(this)
 
-        binding.helpButton?.setOnClickListener {
+        binding.helpButton.setOnClickListener {
             val intent = Intent(this, GalleryActivity::class.java)
             startActivity(intent)
         }
 
-        initializeLabels(this)
+        binding.helpButton.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    // Начало долгого нажатия
+                    pressStartTime = System.currentTimeMillis()
+                    startDevModeCountdown()
+                    true // Возвращаем true, чтобы обработать событие
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // Завершение долгого нажатия
+                    val pressDuration = System.currentTimeMillis() - pressStartTime
+                    devModeHandler.removeCallbacksAndMessages(null)
+                    hintToast?.cancel()
+
+                    if (pressDuration < 5000) { // Если удержание меньше 5 секунд
+                        // Это обычный клик, вызываем performClick()
+                        v.performClick()
+                    }
+                    false // Возвращаем false, чтобы событие передалось в setOnClickListener
+                }
+                else -> false
+            }
+        }
     }
 
     private fun startRecognition() {
@@ -336,11 +377,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (ortSession != null) {
                 imageAnalysis?.setAnalyzer(
                     backgroundExecutor,
-                    ORTAnalyzer(ortSession!!, ::updateUI, ortEnv!!)
+                    ORTAnalyzer(this@MainActivity,ortSession!!, ::updateUI, ortEnv!!)
                 )
             } else {
                 Log.e(TAG, "Failed to create OrtSession")
-                Toast.makeText(this@MainActivity, "Failed to load the model.", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -350,6 +390,89 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         const val TAG = "Jestuno"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+    }
+
+    private fun startDevModeCountdown() {
+        devModeHandler.postDelayed(object : Runnable {
+            private var secondsPassed = 0
+
+            override fun run() {
+                val timePassed = (System.currentTimeMillis() - pressStartTime).toInt()
+
+                when {
+                    timePassed >= 5000 -> {
+                        showDevModeDialog()
+                        hintToast?.cancel()
+                    }
+                    timePassed >= 2000 -> {
+                        val remaining = (5000 - timePassed) / 1000
+                        showHint("Dev Mode: $remaining seconds remaining")
+                        devModeHandler.postDelayed(this, 1000)
+                    }
+                    else -> {
+                        secondsPassed = timePassed / 1000
+                        devModeHandler.postDelayed(this, 1000)
+                    }
+                }
+            }
+        }, 2000)
+    }
+
+    private fun showHint(message: String) {
+        hintToast?.cancel()
+        hintToast = Toast.makeText(this, message, Toast.LENGTH_SHORT).also { it.show() }
+    }
+
+    private fun showDevModeDialog() {
+        val dialog = Dialog(this).apply {
+            requestWindowFeature(Window.FEATURE_NO_TITLE)
+            setContentView(R.layout.dev_mode_dialog)
+            window?.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT
+            )
+            setCanceledOnTouchOutside(true) // Закрывать при нажатии за пределами
+        }
+
+        // Находим корневой layout диалога
+        val rootLayout = dialog.findViewById<View>(R.id.rootLayout)
+        rootLayout.setOnClickListener {
+            // Ничего не делаем, чтобы клики внутри диалога не закрывали его
+        }
+
+        val thresholdInput = dialog.findViewById<EditText>(R.id.thresholdInput)
+        val showAllSwitch = dialog.findViewById<SwitchMaterial>(R.id.showAllSwitch)
+
+        // Устанавливаем текущее значение порога
+        thresholdInput.setText("%.1f".format(devModeThreshold * 100))
+
+        // Обработчик ввода порога
+        thresholdInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                val inputValue = thresholdInput.text.toString().toFloatOrNull()
+                if (inputValue != null && inputValue in 0f..100f) {
+                    devModeThreshold = inputValue / 100f
+                    Toast.makeText(this, "Threshold set to $inputValue%", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Invalid value! Enter a number between 0 and 100.", Toast.LENGTH_SHORT).show()
+                }
+                true
+            } else {
+                false
+            }
+        }
+
+        // Обработчик для переключателя
+        showAllSwitch.isChecked = showAllLetters
+        showAllSwitch.setOnCheckedChangeListener { _, isChecked ->
+            showAllLetters = isChecked
+        }
+
+        // Обработчик закрытия диалога
+        dialog.setOnCancelListener {
+        }
+
+        dialog.show()
     }
 }
 
@@ -386,6 +509,7 @@ class ObjectPool<T>(private val create: () -> T, private val poolSize: Int) {
 }
 
 internal class ORTAnalyzer(
+    private val context: Context,
     private val ortSession: OrtSession,
     private val callBack: (Result) -> Unit,
     private val ortEnv: OrtEnvironment
@@ -470,12 +594,16 @@ internal class ORTAnalyzer(
                             val probabilities = softMax(rawOutput)
                             val topIndex = probabilities.indices.maxByOrNull { probabilities[it] } ?: -1
 
-                            // Фильтрация по порогу вероятности
-                            val probabilityThreshold = 0.067f // Порог вероятности
                             val prob = probabilities[topIndex]
                             val res = labelData[topIndex]
 
-                            if (prob < probabilityThreshold) {
+                            if (showAllLetters) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "$res: %.2f%%".format(prob * 100), Toast.LENGTH_SHORT).show()
+                                }
+                            }
+
+                            if (prob < devModeThreshold) {
                                 Log.d("ORTAnalyzer", "Skipped low probability result: $res $prob")
                                 return@launch
                             }
@@ -608,12 +736,13 @@ class GalleryActivity : AppCompatActivity() {
 
         gridView.setOnItemClickListener { _, _, position, _ ->
             val intent = Intent(this, FullScreenImageActivity::class.java).apply {
-                putExtra("imageName", images[position])
+                putExtra("images", images.toTypedArray())
+                putExtra("position", position)
             }
             startActivity(intent)
         }
 
-        val btnBack: Button = findViewById(R.id.btnBack)
+        val btnBack: FloatingActionButton = findViewById(R.id.btnBack)
         btnBack.setOnClickListener {
             finish()  // Закрыть GalleryActivity и вернуться назад
         }
@@ -653,25 +782,69 @@ class ImageAdapter(private val context: Context, private val images: List<String
 }
 
 
-class FullScreenImageActivity : Activity() {
+class FullScreenImageActivity : AppCompatActivity() {
+    private lateinit var viewPager: ViewPager2
+    private lateinit var images: Array<String>
+    private var startPosition = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_full_screen)
 
-        val imageView = ImageView(this).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setOnClickListener { finish() }
+        // Получаем данные из Intent
+        images = intent.getStringArrayExtra("images") ?: emptyArray()
+        startPosition = intent.getIntExtra("position", 0)
+
+        // Настройка ViewPager
+        viewPager = findViewById(R.id.viewPager)
+        viewPager.adapter = ImagePagerAdapter(this, images)
+        viewPager.setCurrentItem(startPosition, false)
+
+        // Добавляем кнопку "Назад" в ActionBar
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == android.R.id.home) {
+            finish()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
+    private class ImagePagerAdapter(
+        private val context: Context,
+        private val images: Array<String>
+    ) : RecyclerView.Adapter<ImagePagerAdapter.ViewHolder>() {
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val imageView = ImageView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            return ViewHolder(imageView)
         }
 
-        val imageName = intent.getStringExtra("imageName") ?: return
-        val assetManager = assets
-        val inputStream = assetManager.open("bb/$imageName")
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        imageView.setImageBitmap(bitmap)
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            try {
+                val assetManager = context.assets
+                val inputStream = assetManager.open("bb/${images[position]}")
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                holder.imageView.setImageBitmap(bitmap)
+            } catch (e: IOException) {
+                e.printStackTrace()
+            }
+        }
 
-        setContentView(imageView)
+        override fun getItemCount(): Int = images.size
+
+        inner class ViewHolder(val imageView: ImageView) : RecyclerView.ViewHolder(imageView)
     }
 }
+
+
+
+
