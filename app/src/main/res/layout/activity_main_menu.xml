@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/i_back"
+    tools:context=".MainMenuActivity">
+
+    <!-- Фоновое изображение с прозрачностью 70% -->
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/background"
+        android:scaleType="centerCrop"
+        android:alpha="0.3"/>
+
+    <!-- Ваш текущий контент -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- Иконка и заголовок вверху по центру -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="40dp"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <!-- Иконка (замените на вашу) -->
+            <ImageView
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:src="@mipmap/ic_launcher"
+                android:contentDescription="App icon"/>
+
+            <!-- Заголовок -->
+            <TextView
+                android:id="@+id/appTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:fontFamily="sans-serif"
+                android:text="Жестуно"
+                android:textColor="#6C6C6C"
+                android:textSize="34sp"
+                android:textStyle="bold"
+                android:typeface="normal" />
+        </LinearLayout>
+
+        <!-- Блок кнопок по центру -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_centerInParent="true"
+            android:paddingLeft="32dp"
+            android:paddingRight="32dp">
+
+            <Button
+                android:id="@+id/btnMainMode"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginBottom="10dp"
+                android:backgroundTint="#6C6C6C"
+                android:drawablePadding="8dp"
+                android:text="Распознавание"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
+
+            <Button
+                android:id="@+id/btnStudyMode"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginBottom="10dp"
+                android:backgroundTint="#6C6C6C"
+                android:text="Алфавит"
+                android:textSize="16sp"
+                android:textColor="#FFFFFF"
+                android:drawablePadding="8dp"/>
+
+            <Button
+                android:id="@+id/btnTrainingMode"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:backgroundTint="#6C6C6C"
+                android:text="Тренировка"
+                android:textSize="16sp"
+                android:textColor="#FFFFFF"
+                android:drawablePadding="8dp"/>
+        </LinearLayout>
+    </RelativeLayout>
+</FrameLayout>

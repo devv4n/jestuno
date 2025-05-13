@@ -1,47 +1,49 @@
 package ai.onnxruntime.example.imageclassifier
 
-import ai.onnxruntime.*
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtException
+import ai.onnxruntime.OrtSession
 import ai.onnxruntime.example.imageclassifier.databinding.ActivityMainBinding
 import android.Manifest
-import android.content.pm.PackageManager
-import android.graphics.*
-import android.os.Bundle
-import android.os.SystemClock
-import android.speech.tts.TextToSpeech
-import android.util.Log
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.*
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.*
-import java.io.ByteArrayOutputStream
-import java.nio.FloatBuffer
-import java.util.*
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.MenuItem
+import android.speech.tts.TextToSpeech
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.widget.BaseAdapter
 import android.widget.EditText
-import android.widget.GridView
-import android.widget.ImageView
-import androidx.recyclerview.widget.RecyclerView
-import androidx.viewpager2.widget.ViewPager2
-import com.google.android.material.floatingactionbutton.FloatingActionButton
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.AspectRatio
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.google.android.material.switchmaterial.SwitchMaterial
-import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 // Top-level extension function for rotating a Bitmap
 fun Bitmap.rotate(degrees: Float): Bitmap {
@@ -49,14 +51,14 @@ fun Bitmap.rotate(degrees: Float): Bitmap {
     return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
-private lateinit var labelData: List<String>
+lateinit var labelData: List<String>
 
 fun initializeLabels(context: Context) {
     labelData = context.resources.openRawResource(R.raw.imagenet_classes).bufferedReader().readLines()
 }
 
-private var devModeThreshold = 0.067f
-private var showAllLetters = false
+var devModeThreshold = 0.055f
+var showAllLetters = false
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var binding: ActivityMainBinding
@@ -475,376 +477,4 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         dialog.show()
     }
 }
-
-internal data class Result(
-    var detectedIndices: List<Int> = emptyList(),
-    var detectedScore: MutableList<Float> = mutableListOf(),
-    var processTimeMs: Long = 0
-)
-
-class ObjectPool<T>(private val create: () -> T, private val poolSize: Int) {
-    private val pool = mutableListOf<T>()
-
-    init {
-        repeat(poolSize) {
-            pool.add(create())
-        }
-    }
-
-    @Synchronized
-    fun acquire(): T {
-        return if (pool.isNotEmpty()) {
-            pool.removeAt(pool.size - 1)
-        } else {
-            create()
-        }
-    }
-
-    @Synchronized
-    fun release(obj: T) {
-        if (pool.size < poolSize) {
-            pool.add(obj)
-        }
-    }
-}
-
-internal class ORTAnalyzer(
-    private val context: Context,
-    private val ortSession: OrtSession,
-    private val callBack: (Result) -> Unit,
-    private val ortEnv: OrtEnvironment
-) : ImageAnalysis.Analyzer {
-
-    private val frameInterval = 5
-    private var frameCounter = 0
-    private val tensorsList = mutableListOf<FloatBuffer>()
-    private val windowSize = 3
-    private val inputShape = longArrayOf(1,  8, windowSize.toLong(), 224, 224)
-    private val imgDataPool = ObjectPool(::createNewFloatBuffer, poolSize = 10)
-
-    private fun createNewFloatBuffer(): FloatBuffer {
-        return FloatBuffer.allocate(3 * 224 * 224)
-    }
-
-    private fun softMax(modelResult: FloatArray): FloatArray {
-        val labelVals = modelResult.copyOf()
-        val max = labelVals.maxOrNull() ?: 0.0f
-        var sum = 0.0f
-
-        for (i in labelVals.indices) {
-            labelVals[i] = kotlin.math.exp(labelVals[i] - max)
-            sum += labelVals[i]
-        }
-
-        if (sum != 0.0f) {
-            for (i in labelVals.indices) {
-                labelVals[i] /= sum
-            }
-        }
-
-        return labelVals
-    }
-
-    override fun analyze(image: ImageProxy) {
-        frameCounter++
-        if (frameCounter % frameInterval != 0) {
-            image.close()
-            return
-        }
-
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                val imgBitmap = image.toBitmapUsingBuffer()
-
-                val result = Result()
-
-                val imgData = imgDataPool.acquire()
-                preProcess(imgBitmap, imgData)
-                tensorsList.add(imgData)
-
-                if (tensorsList.size >= windowSize) {
-                    val inputTensor = FloatBuffer.allocate(1 * 8 * 3 * 224 * 224)
-
-                    for (i in 0 until 8) {
-                        tensorsList.forEach { tensor ->
-                            inputTensor.put(tensor)
-                        }
-                    }
-                    inputTensor.rewind()
-
-                    tensorsList.forEach { imgDataPool.release(it) }
-                    tensorsList.clear()
-
-                    val inputName = ortSession.inputNames.firstOrNull()
-                    if (inputName == null) {
-                        Log.e("ORTAnalyzer", "No input name found in the model.")
-                        return@launch
-                    }
-
-                    val tensor: OnnxTensor = OnnxTensor.createTensor(ortEnv, inputTensor, inputShape)
-                    tensor.use { tr ->
-                        val startTime = SystemClock.uptimeMillis()
-
-                        val output: OrtSession.Result = ortSession.run(Collections.singletonMap(inputName, tr))
-                        output.use { out ->
-                            result.processTimeMs = SystemClock.uptimeMillis() - startTime
-
-                            @Suppress("UNCHECKED_CAST")
-                            val rawOutput = (out.get(0).value as Array<FloatArray>)[0]
-                            val probabilities = softMax(rawOutput)
-                            val topIndex = probabilities.indices.maxByOrNull { probabilities[it] } ?: -1
-
-                            val prob = probabilities[topIndex]
-                            val res = labelData[topIndex]
-
-                            if (showAllLetters) {
-                                withContext(Dispatchers.Main) {
-                                    Toast.makeText(context, "$res: %.2f%%".format(prob * 100), Toast.LENGTH_SHORT).show()
-                                }
-                            }
-
-                            if (prob < devModeThreshold) {
-                                Log.d("ORTAnalyzer", "Skipped low probability result: $res $prob")
-                                return@launch
-                            }
-
-                            Log.d("ORTAnalyzer", "Add to result: $res $prob")
-
-                            result.detectedIndices = listOf(topIndex)
-                            result.detectedScore.add(probabilities.getOrNull(topIndex) ?: 0f)
-
-                            withContext(Dispatchers.Main) {
-                                callBack(result)
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("ORTAnalyzer", "Error during image analysis", e)
-            } finally {
-                image.close()
-            }
-        }
-    }
-
-    private fun preProcess(bitmap: Bitmap, imgData: FloatBuffer) {
-        imgData.clear()
-        val stride = 224 * 224
-        val bmpData = IntArray(stride)
-        bitmap.getPixels(bmpData, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-
-        val mean = floatArrayOf(123.675f, 116.28f, 103.53f)
-        val std = floatArrayOf(58.395f, 57.12f, 57.375f)
-
-        val rChannel = FloatArray(stride)
-        val gChannel = FloatArray(stride)
-        val bChannel = FloatArray(stride)
-
-        for (i in 0 until 224) {
-            for (j in 0 until 224) {
-                val idx = 224 * i + j
-                val pixelValue = bmpData[idx]
-
-                rChannel[idx] = (((pixelValue shr 16) and 0xFF) - mean[0]) / std[0]
-                gChannel[idx] = (((pixelValue shr 8) and 0xFF) - mean[1]) / std[1]
-                bChannel[idx] = ((pixelValue and 0xFF) - mean[2]) / std[2]
-            }
-        }
-
-        imgData.put(rChannel)
-        imgData.put(gChannel)
-        imgData.put(bChannel)
-
-        imgData.rewind()
-    }
-}
-
-// Extension function to convert ImageProxy to Bitmap
-private fun ImageProxy.toBitmapUsingBuffer(): Bitmap {
-    val nv21 = yuv420888ToNv21(this)
-    val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-    val out = ByteArrayOutputStream()
-    yuvImage.compressToJpeg(Rect(0, 0, width, height), 80, out)
-    val imageBytes: ByteArray = out.toByteArray()
-    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-    return Bitmap.createScaledBitmap(bitmap.rotate(imageInfo.rotationDegrees.toFloat()), 224, 224, false) // Resize to model input size
-}
-
-// Function to convert YUV_420_888 to NV21
-fun yuv420888ToNv21(image: ImageProxy): ByteArray {
-    val width = image.width
-    val height = image.height
-    val ySize = width * height
-    val uvSize = width * height / 4
-
-    val nv21 = ByteArray(ySize + uvSize * 2)
-
-    val yBuffer = image.planes[0].buffer // Y
-    val uBuffer = image.planes[1].buffer // U
-    val vBuffer = image.planes[2].buffer // V
-
-    var rowStride = image.planes[0].rowStride
-    var pos = 0
-    if (rowStride == width) {
-        yBuffer.get(nv21, 0, ySize)
-        pos += ySize
-    } else {
-        var yPos = 0
-        for (i in 0 until height) {
-            yBuffer.position(yPos)
-            yBuffer.get(nv21, pos, width)
-            pos += width
-            yPos += rowStride
-        }
-    }
-
-    rowStride = image.planes[2].rowStride
-    val pixelStride = image.planes[2].pixelStride
-
-    if (pixelStride == 2 && rowStride == width && width % 2 == 0) {
-        vBuffer.get(nv21, ySize, uvSize)
-        uBuffer.get(nv21, ySize + uvSize, uvSize)
-    } else {
-        for (i in 0 until height / 2) {
-            for (j in 0 until width / 2) {
-                nv21[ySize + i * width + j * 2] = vBuffer.get(i * rowStride + j * pixelStride)
-                nv21[ySize + i * width + j * 2 + 1] = uBuffer.get(i * rowStride + j * pixelStride)
-            }
-        }
-    }
-    return nv21
-}
-
-class GalleryActivity : AppCompatActivity() {
-    private lateinit var images: List<String>
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_gallery)
-
-        // Показываем кнопку "Назад" в ActionBar
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-
-        val assetManager = assets
-        images = assetManager.list("bb")
-            ?.sortedWith(compareBy { it.filter { char -> char.isDigit() }.toIntOrNull() ?: 0 })
-            ?: emptyList()
-
-
-        val gridView: GridView = findViewById(R.id.gridView)
-        gridView.adapter = ImageAdapter(this, images)
-
-        gridView.setOnItemClickListener { _, _, position, _ ->
-            val intent = Intent(this, FullScreenImageActivity::class.java).apply {
-                putExtra("images", images.toTypedArray())
-                putExtra("position", position)
-            }
-            startActivity(intent)
-        }
-
-        val btnBack: FloatingActionButton = findViewById(R.id.btnBack)
-        btnBack.setOnClickListener {
-            finish()  // Закрыть GalleryActivity и вернуться назад
-        }
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            android.R.id.home -> {  // Нажатие на кнопку "Назад"
-                finish()
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
-}
-
-
-class ImageAdapter(private val context: Context, private val images: List<String>) : BaseAdapter() {
-    override fun getCount(): Int = images.size
-    override fun getItem(position: Int): Any = images[position]
-    override fun getItemId(position: Int): Long = position.toLong()
-
-    override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-        val imageView = convertView as? ImageView ?: ImageView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(400, 400)
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setPadding(8, 8, 8, 8)
-        }
-
-        val assetManager = context.assets
-        val inputStream = assetManager.open("bb/${images[position]}")
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        imageView.setImageBitmap(bitmap)
-
-        return imageView
-    }
-}
-
-
-class FullScreenImageActivity : AppCompatActivity() {
-    private lateinit var viewPager: ViewPager2
-    private lateinit var images: Array<String>
-    private var startPosition = 0
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_full_screen)
-
-        // Получаем данные из Intent
-        images = intent.getStringArrayExtra("images") ?: emptyArray()
-        startPosition = intent.getIntExtra("position", 0)
-
-        // Настройка ViewPager
-        viewPager = findViewById(R.id.viewPager)
-        viewPager.adapter = ImagePagerAdapter(this, images)
-        viewPager.setCurrentItem(startPosition, false)
-
-        // Добавляем кнопку "Назад" в ActionBar
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == android.R.id.home) {
-            finish()
-            return true
-        }
-        return super.onOptionsItemSelected(item)
-    }
-
-    private class ImagePagerAdapter(
-        private val context: Context,
-        private val images: Array<String>
-    ) : RecyclerView.Adapter<ImagePagerAdapter.ViewHolder>() {
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            val imageView = ImageView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            }
-            return ViewHolder(imageView)
-        }
-
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            try {
-                val assetManager = context.assets
-                val inputStream = assetManager.open("bb/${images[position]}")
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                holder.imageView.setImageBitmap(bitmap)
-            } catch (e: IOException) {
-                e.printStackTrace()
-            }
-        }
-
-        override fun getItemCount(): Int = images.size
-
-        inner class ViewHolder(val imageView: ImageView) : RecyclerView.ViewHolder(imageView)
-    }
-}
-
-
-
 
